@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(systemctl *)",
+      "Bash(pgrep *)",
+      "Bash(ss *)",
+      "Bash(curl *)",
+      "Bash(timeout *)",
+      "Bash(echo *)",
+      "Bash(python3 *)"
+    ]
+  },
+  "$version": 3
+}
