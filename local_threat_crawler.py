@@ -70,9 +70,10 @@ class DarkScopeCrawler:
         """Initialize crawler with multiple AI configurations"""
         
         # Tor proxy
+        proxy_url = os.environ.get("TOR_PROXY_URL", "socks5h://127.0.0.1:9050")
         self.proxies = {
-            "http": "socks5h://127.0.0.1:9050",
-            "https": "socks5h://127.0.0.1:9050"
+            "http": proxy_url,
+            "https": proxy_url
         }
         
         # Initialize AI models

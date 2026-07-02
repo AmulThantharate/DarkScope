@@ -1,0 +1,223 @@
+---
+- name: Deploy DarkScope AI System (Native + Nginx SSL)
+  hosts: all
+  become: yes
+  vars:
+    project_dir: /opt/darkscope
+    repo_url: "https://github.com/AmulThantharate/DarkScope.git"
+    openrouter_api_key: "YOUR_OPENROUTER_API_KEY_HERE"
+    node_version: "20"
+    domain_name: "site.local"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      when: ansible_os_family == 'Debian'
+
+    - name: Install system dependencies
+      apt:
+        name:
+          - git
+          - curl
+          - python3
+          - python3-venv
+          - python3-pip
+          - tor
+          - lsof
+          - nginx
+          - openssl
+        state: present
+      when: ansible_os_family == 'Debian'
+
+    - name: Ensure Tor service is running
+      service:
+        name: tor
+        state: started
+        enabled: yes
+
+    - name: Setup NodeSource repository
+      shell: "curl -fsSL https://deb.nodesource.com/setup_{{ node_version }}.x | bash -"
+      args:
+        creates: /etc/apt/sources.list.d/nodesource.list
+      when: ansible_os_family == 'Debian'
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+      when: ansible_os_family == 'Debian'
+
+    - name: Ensure project directory exists
+      file:
+        path: "{{ project_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy project files
+      synchronize:
+        src: ./
+        dest: "{{ project_dir }}"
+        archive: yes
+        delete: yes
+
+    - name: Create Python virtual environment
+      command: python3 -m venv ven
+      args:
+        chdir: "{{ project_dir }}"
+        creates: "{{ project_dir }}/ven"
+
+    - name: Install Python requirements
+      pip:
+        requirements: "{{ project_dir }}/requirements.txt"
+        virtualenv: "{{ project_dir }}/ven"
+
+    - name: Install NPM dependencies
+      command: npm install
+      args:
+        chdir: "{{ project_dir }}"
+
+    - name: Build Next.js application
+      command: npm run build
+      args:
+        chdir: "{{ project_dir }}"
+
+    - name: Create .env file
+      copy:
+        dest: "{{ project_dir }}/.env"
+        content: |
+          OPENROUTER_API_KEY={{ openrouter_api_key }}
+          DARKSCOPE_API_PORT=8000
+          PYTHON_API_URL=http://127.0.0.1:8000
+          TOR_PROXY_URL=socks5h://127.0.0.1:9050
+        mode: '0600'
+
+    - name: Create Backend systemd service
+      copy:
+        dest: /etc/systemd/system/darkscope-backend.service
+        content: |
+          [Unit]
+          Description=DarkScope FastAPI Backend
+          After=network.target tor.service
+
+          [Service]
+          Type=simple
+          User=root
+          WorkingDirectory={{ project_dir }}
+          EnvironmentFile={{ project_dir }}/.env
+          ExecStart={{ project_dir }}/ven/bin/python darkscope_api.py
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Create Frontend systemd service
+      copy:
+        dest: /etc/systemd/system/darkscope-frontend.service
+        content: |
+          [Unit]
+          Description=DarkScope Next.js Frontend
+          After=network.target darkscope-backend.service
+
+          [Service]
+          Type=simple
+          User=root
+          WorkingDirectory={{ project_dir }}
+          EnvironmentFile={{ project_dir }}/.env
+          ExecStart=/usr/bin/npm start
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+
+    - name: Enable and start backend service
+      systemd:
+        name: darkscope-backend
+        state: restarted
+        enabled: yes
+
+    - name: Enable and start frontend service
+      systemd:
+        name: darkscope-frontend
+        state: restarted
+        enabled: yes
+
+    - name: Create SSL directory
+      file:
+        path: /etc/nginx/ssl
+        state: directory
+        mode: '0755'
+
+    - name: Generate self-signed SSL certificate for local testing
+      command: >
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048
+        -keyout /etc/nginx/ssl/{{ domain_name }}.key
+        -out /etc/nginx/ssl/{{ domain_name }}.crt
+        -subj "/C=US/ST=State/L=City/O=Organization/CN={{ domain_name }}"
+      args:
+        creates: /etc/nginx/ssl/{{ domain_name }}.crt
+
+    - name: Configure Nginx site
+      copy:
+        dest: /etc/nginx/sites-available/darkscope
+        content: |
+          server {
+              listen 80;
+              server_name {{ domain_name }};
+              return 301 https://$host$request_uri;
+          }
+
+          server {
+              listen 443 ssl;
+              server_name {{ domain_name }};
+
+              ssl_certificate /etc/nginx/ssl/{{ domain_name }}.crt;
+              ssl_certificate_key /etc/nginx/ssl/{{ domain_name }}.key;
+
+              # Proxy requests starting with /api to the FastAPI backend
+              location /api/ {
+                  proxy_pass http://127.0.0.1:8000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+
+              # Proxy all other requests to the Next.js frontend
+              location / {
+                  proxy_pass http://127.0.0.1:3000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection "upgrade";
+              }
+          }
+
+    - name: Enable Nginx site
+      file:
+        src: /etc/nginx/sites-available/darkscope
+        dest: /etc/nginx/sites-enabled/darkscope
+        state: link
+
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Ensure domain maps to localhost in /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        line: "127.0.0.1 {{ domain_name }}"
+        state: present
+
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
+        enabled: yes

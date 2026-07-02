@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  tor:
+    image: dperson/torproxy
+    ports:
+      - "9050:9050"
+    restart: unless-stopped
+    networks:
+      - darkscope-net
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    environment:
+      - TOR_PROXY_URL=socks5h://tor:9050
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    depends_on:
+      - tor
+    restart: unless-stopped
+    networks:
+      - darkscope-net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - PYTHON_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - darkscope-net
+
+networks:
+  darkscope-net:
+    driver: bridge

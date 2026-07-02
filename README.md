@@ -58,51 +58,56 @@ brew install tor && brew services start tor
 
 Verify Tor is running: `systemctl is-active tor` or `pgrep -x tor`.
 
-### Installation
+### Installation & Deployment
 
-1. **Clone the repository:**
+DarkScope supports multiple deployment strategies to fit your infrastructure:
 
-   ```bash
-   git clone https://github.com/AmulThantharate/DarkScope.git
-   cd DarkScope
-   ```
-
-2. **Configure Environment Variables:**
-   Copy the example environment file and insert your API key:
-
-   ```bash
-   cp .env.example .env
-   # Edit .env and add your OPENROUTER_API_KEY
-   ```
-
-3. **Install Dependencies:**
-   The `start.sh` script relies on a Python virtual environment named `ven`. We have provided an easy setup:
-
-   ```bash
-   # Create and setup the Python Virtual Environment
-   python3 -m venv ven
-   source ven/bin/activate
-   pip install -r requirements.txt
-
-   # Install Node.js frontend dependencies
-   npm install # or pnpm install / bun install
-   ```
-
-### Running the System
-
-You can run both the API backend and the Next.js frontend with our unified startup script:
+#### 1. Local Development (Native)
+Run the system directly on your host using our unified startup script.
 
 ```bash
+git clone https://github.com/AmulThantharate/DarkScope.git
+cd DarkScope
+cp .env.example .env # Add your OPENROUTER_API_KEY
+python3 -m venv ven && source ven/bin/activate
+pip install -r requirements.txt
+npm install
 ./start.sh
 ```
 
-**What this does:**
+#### 2. Docker Compose
+Deploy instantly using pre-configured, isolated containers for the Tor proxy, FastAPI backend, and Next.js frontend.
 
-1. Checks and clears ports 3000 and 8000.
-2. Activates the Python virtual environment and starts `darkscope_api.py` in the background.
-3. Starts the Next.js frontend on `http://localhost:3000`.
+```bash
+git clone https://github.com/AmulThantharate/DarkScope.git
+cd DarkScope
+# Edit docker-compose.yml to insert your OPENROUTER_API_KEY
+docker compose up -d --build
+```
+Access the dashboard at `http://localhost:3000`.
 
-_Press `Ctrl+C` to gracefully shut down both servers._
+#### 3. Enterprise Native Deployment (Ansible)
+Deploy a production-ready native stack featuring robust `systemd` services and an Nginx reverse proxy with self-signed SSL on domain `site.local`.
+
+```bash
+# Ensure you have ansible installed
+ansible-playbook -i localhost, -c local ansible.yml
+```
+
+#### 4. Kubernetes (K8s)
+Scale horizontally on any Kubernetes cluster. Standardized manifests are located in the `k8s/` directory.
+
+```bash
+# First, build your local images
+docker build -t darkscope-backend:latest -f Dockerfile.backend .
+docker build -t darkscope-frontend:latest -f Dockerfile.frontend .
+
+# Create a secret for your API key
+kubectl create secret generic darkscope-secrets --from-literal=openrouter_api_key="YOUR_KEY"
+
+# Apply the unified deployment manifest
+kubectl apply -f k8s/darkscope.yaml
+```
 
 ## ⚙️ Configuration (.env)
 

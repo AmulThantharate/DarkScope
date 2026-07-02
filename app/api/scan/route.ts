@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import type { ThreatResult, RiskLevel, ThreatCategory, ScanResponse } from "@/lib/types"
 
 // Python API server URL
-const PYTHON_API_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://localhost:8000"
+const PYTHON_API_URL = process.env.PYTHON_API_URL || process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://localhost:8000"
 
 // ---------------------------------------------------------------------------
 // Live mode — proxy to Python FastAPI backend
